@@ -91,10 +91,9 @@ namespace DatingApp.API.Controllers
 
             user.Photos.Add(photo);
 
-            var photoToReturn = _mapper.Map<PhotoForReturnDto>(photo);
 
             if (await _repo.SaveAll())
-            {
+            {   var photoToReturn = _mapper.Map<PhotoForReturnDto>(photo);
                 return CreatedAtRoute("GetPhoto", new { id = photo.Id }, photoToReturn);
             }
 
@@ -132,7 +131,7 @@ namespace DatingApp.API.Controllers
         }
         [HttpDelete("{id}")]
         public async Task<ActionResult> DeletePhoto(int userId, int id){
-             if (userId != int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value))
+            if (userId != int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value))
             return Unauthorized();
 
             var photoFromRepo = await _repo.GetPhoto(id);
@@ -141,6 +140,21 @@ namespace DatingApp.API.Controllers
 
             if (photoFromRepo.IsMain)
                 return BadRequest("You canot delete the main photo");
+            if(photoFromRepo.PublicId != null){
+                var deleteParams= new DeletionParams(photoFromRepo.PublicId);
+                var result = _cloudinary.Destroy(deleteParams);
+                if (result.Result == "ok")
+                    _repo.Delete(photoFromRepo);
+            }
+            if(photoFromRepo.PublicId==null){
+
+                _repo.Delete(photoFromRepo);
+            }
+
+           
+            if(await _repo.SaveAll())
+            return Ok();
+            return BadRequest("failed to delete the photo");
         }
     }
 }
