@@ -24,16 +24,53 @@ namespace DatingApp.API.Data
             _context.Remove(entity);
         }
 
+        public async Task<Like> GetLike(int userId, int recipientId)
+        {
+            return await _context.Likes.FirstOrDefaultAsync(u => u.LikerId == userId && u.LikeeId == recipientId);
+        }
+
         public async Task<Photo> GetMainPhotoForUser(int userId)
         {
             return await _context.Photos.Where(u => u.UserId == userId).FirstOrDefaultAsync(p => p.IsMain);
         }
 
-        public Task<Photo> GetPhoto(int id)
+        public async Task<Message> GetMessage(int id)
         {
-            var photo = _context.Photos.FirstOrDefaultAsync(p => p.Id == id);
+            return await _context.Messages.FirstOrDefaultAsync(m => m.Id == id);
+        }
 
-            return photo;
+        public async Task<PagedList<Message>> GetMessagesForUser(MessageParams messageParams)
+        {
+            var messages = _context.Messages
+            .Include(u => u.Sender).ThenInclude(p => p.Photos)
+            .Include(u => u.Recipient).ThenInclude(p => p.Photos)
+            .AsQueryable();
+
+            switch (messageParams.MessageContainer)
+            {
+                case "Inbox":
+                    messages = messages.Where(u => u.RecipientId == messageParams.UserId);
+                    break;
+                case "Outbox":
+                    messages = messages.Where(u => u.SenderId == messageParams.UserId);
+                    break;
+                default:
+                    messages = messages.Where(u => u.RecipientId == messageParams.UserId && u.IsRead == false);
+                    break; 
+            }
+            messages = messages.OrderByDescending(d => d.MessageSent);
+            return await PagedList<Message>.CreateAsync(messages, messageParams.PageNumber, messageParams.PageSize);
+        }
+
+        public async Task<IEnumerable<Message>> GetMessageThread(int userId, int recipientId)
+        {
+            throw new System.NotImplementedException();
+        }
+
+        public async Task<Photo> GetPhoto(int id)
+        {
+           var photo = await _context.Photos.FirstOrDefaultAsync(p => p.Id == id);
+           return photo;
         }
 
         public async Task<User> GetUser(int id)
@@ -50,16 +87,26 @@ namespace DatingApp.API.Data
             users = users.Where(u => u.Id != userParams.UserId);
 
             users = users.Where(u => u.Gender == userParams.Gender);
- 
-            if (userParams.MinAge != 18 || userParams.MaxAge != 99)
+
+             if (userParams.Likers) {
+                var userLikers = await GetUsersLikes(userParams.UserId, userParams.Likers);
+                users = users.Where(u => userLikers.Any(liker => liker.LikerId == u.Id));
+            }
+
+            if (userParams.Likees) {
+                var userLikees = await GetUsersLikes(userParams.UserId, userParams.Likers);
+                users = users.Where(u => userLikees.Any(likee => likee.LikeeId == u.Id));
+            }
+
+            if (userParams.MinAge != 18 || userParams.MaxAge != 99 )
             {
-                users = users.Where(u => u.DateOfBirth.CalculateAge() >= userParams.MinAge
-                    && u.DateOfBirth.CalculateAge() <= userParams.MaxAge);
+                users = users.Where(u => u.DateOfBirth.CalculateAge() >= userParams.MinAge && 
+                u.DateOfBirth.CalculateAge() <= userParams.MaxAge);
             }
 
             if (!string.IsNullOrEmpty(userParams.OrderBy))
             {
-                switch (userParams.OrderBy)
+               switch (userParams.OrderBy)
                 {
                     case "created":
                         users = users.OrderByDescending(u => u.Created);
@@ -75,7 +122,23 @@ namespace DatingApp.API.Data
 
         public async Task<bool> SaveAll()
         {
-            return await _context.SaveChangesAsync() > 0;
+           return await _context.SaveChangesAsync() > 0;
         }
+
+        private async Task<IEnumerable<Like>> GetUsersLikes(int id, bool likers) {
+            var users = await _context.Users
+            .Include(x => x.Likee)
+            .Include(x => x.Liker)
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+            if (likers) {
+                return users.Likee.Where(u => u.LikeeId == id);
+            } else {
+                return users.Liker.Where(u => u.LikerId == id);
+            }
+            }
+        }
+
+      
+      
     }
-}
